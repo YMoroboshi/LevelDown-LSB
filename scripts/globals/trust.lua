@@ -396,14 +396,75 @@ xi.trust.canCast = function(caster, spell, notAllowedTrustIds)
 end
 
 xi.trust.spawn = function(caster, spell)
-    caster:spawnTrust(spell:getID())
+    local spawnedTrust = caster:spawnTrust(spell:getID())
 
+    -- Forces the party to refresh teamwork bonuses
+    local party = caster:getPartyWithTrusts()
+    for _, member in ipairs(party) do
+        if member:getObjType() == xi.objType.TRUST then
+            xi.trust.applyTeamworkBonuses(member)
+        end
+    end
+    
     -- Records of Eminence: Call Forth an Alter Ego
     if caster:getEminenceProgress(932) then
         xi.roe.onRecordTrigger(caster, 932)
     end
 
     return 0
+end
+
+xi.trust.applyTeamworkBonuses = function(mob) -- Entries for Trust teamwork bonuses
+    local synergies = {
+		[5906] = { -- Zeid (Regular)
+            { partner = 5907, mod = 62, value = 10, var = "LionBonus" }, -- Lion, Attack +10%
+            { partner = 5930, mod = 62, value = 10, var = "AldoBonus" }, -- Aldo, Attack +10%
+        },
+		[5907] = { -- Lion (Regular)
+            { partner = 5906, mod = 384, value = 600, var = "ZeidBonus" }, -- Zeid, +Haste(gear)
+            { partner = 5930, mod = 384, value = 600, var = "AldoBonus" }, -- Aldo, +Haste(gear)
+        },
+        [5930] = { -- Aldo (Regular)
+            { partner = 5906, mod = 481, value = 10, var = "ZeidBonus" }, -- Zeid, Extra DW
+            { partner = 5907, mod = 481, value = 10, var = "LionBonus" }, -- Lion, Extra DW
+        },
+		[5998] = { -- Ygnas
+            { partner = 5965, mod = 369, value = 2, var = "ArcielaBonus" }, -- Refresh +2
+            { partner = 6017, mod = 369, value = 2, var = "Arciela2Bonus" }, -- Refresh +2
+        },
+    }
+
+    local master = mob:getMaster()
+    if not master then return end
+
+    -- Use the correct getter found in your xi.trust.message block
+    local myPoolId = mob:getPool()
+    local mySynergies = synergies[myPoolId]
+    if not mySynergies then return end
+
+    local party = master:getPartyWithTrusts()
+    for _, member in ipairs(party) do
+        -- Compare unique entity IDs to ensure it's not the same mob
+        if member:getID() ~= mob:getID() then
+            local partnerPoolId = member:getPool()
+
+            for _, entry in ipairs(mySynergies) do
+                if partnerPoolId == entry.partner then
+                    if mob:getLocalVar(entry.var) == 0 then
+                        mob:addMod(entry.mod, entry.value)
+                        
+                        -- If Mod is 1 (HP), update current HP too
+                        if entry.mod == 1 then
+                            mob:addHP(entry.value)
+                        end
+                        
+                        mob:setLocalVar(entry.var, 1)
+                        print(string.format("[TRUST] %s (Pool %d) matched with partner %d!", mob:getName(), myPoolId, partnerPoolId))
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- pageOffset is: (summon_message_id - 1) / 100
